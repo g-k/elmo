@@ -146,24 +146,25 @@ def _hg_repository_sync(name, url, submits, do_update=True):
     else:
         ui_.readconfig(configpath)
         hgrepo = repository(ui_, repopath)
-        cs = submits[-1].changesets[-1]
-        try:
-            hgrepo.changectx(cs)
-        except RepoError:
+        all_changesets = reduce(lambda l, r: l + r,
+                                (submit.changesets for submit in submits))
+        for cs in reversed(all_changesets):
+            if cs in hgrepo:
+                continue
             pull(ui_, hgrepo, source=str(url),
                  force=False, update=False,
-                 rev=[])
-            if do_update:
-                # Make sure that we're not triggering workers in post 2.6
-                # hg. That's not stable, at least as we do it.
-                # Monkey patch time
-                try:
-                    from mercurial import worker
-                    if hasattr(worker, '_startupcost'):
-                        # use same value as hg for non-posix
-                        worker._startupcost = 1e30
-                except ImportError:
-                    # no worker, no problem
-                    pass
-                update(ui_, hgrepo)
+                 rev=[cs])
+        if do_update:
+            # Make sure that we're not triggering workers in post 2.6
+            # hg. That's not stable, at least as we do it.
+            # Monkey patch time
+            try:
+                from mercurial import worker
+                if hasattr(worker, '_startupcost'):
+                    # use same value as hg for non-posix
+                    worker._startupcost = 1e30
+            except ImportError:
+                # no worker, no problem
+                pass
+            update(ui_, hgrepo)
     return hgrepo

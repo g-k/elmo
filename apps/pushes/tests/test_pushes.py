@@ -353,3 +353,69 @@ class TestHandlePushes(RepoTestBase):
         # re-fetch
         repo = Repository.objects.get(pk=repo.pk)
         self.assertEqual(repo.changesets.all().count(), 3)
+
+    def test_handlePushes_two_branches_in_push(self):
+        repo = Repository.objects.create(
+          name='mozilla-central',
+          url='file://' + self.repo
+        )
+
+        ui = mock_ui()
+        hgcommands.init(ui, self.repo)
+        hgrepo = repository(ui, self.repo)
+        (open(hgrepo.pathto('file.dtd'), 'w')
+             .write('''
+             <!ENTITY key1 "Hello">
+             <!ENTITY key2 "Cruel">
+             '''))
+
+        hgcommands.addremove(ui, hgrepo)
+        hgcommands.commit(ui, hgrepo,
+                  user="Jane Doe <jdoe@foo.tld>",
+                  message="initial commit")
+        rev0 = hgrepo[0].hex()
+
+        timestamp = int(time.time())
+        pushjs0 = PushJS(100, {
+          'date': timestamp,
+          'changesets': [rev0],
+          'user': 'jdoe',
+        })
+        result = handlePushes(repo.pk, [pushjs0])
+
+        (open(hgrepo.pathto('file.dtd'), 'w')
+             .write('''
+             <!ENTITY key1 "Hello">
+             <!ENTITY key2 "Cruel">
+             <!ENTITY key3 "World">
+             '''))
+        hgcommands.commit(ui, hgrepo,
+                  user="Jane Doe <jdoe@foo.tld>",
+                  message="Second commit")
+        rev1 = hgrepo[1].hex()
+        hgcommands.update(ui, hgrepo,
+                  rev=rev0)
+        hgcommands.branch(ui, hgrepo, label='one-off-branch')
+        (open(hgrepo.pathto('file.dtd'), 'w')
+             .write('''
+             <!ENTITY key1 "Hella">
+             <!ENTITY key2 "Cruel">
+             <!ENTITY key3 "World">
+             '''))
+        hgcommands.commit(ui, hgrepo,
+                  user="Jane Doe <jdoe@foo.tld>",
+                  message="Branch commit")
+        rev2 = hgrepo[2].hex()
+
+        # push this
+        timestamp = int(time.time())
+        pushjs0 = PushJS(101, {
+          'date': timestamp,
+          'changesets': [rev1, rev2],
+          'user': 'jdoe',
+        })
+        result = handlePushes(repo.pk, [pushjs0])
+        self.assertEqual(result, 1)
+        # re-fetch
+        repo = Repository.objects.get(pk=repo.pk)
+        self.assertEqual(repo.changesets.all().count(), 4)
